@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ABÊ Games — TikTok Presentes Overlay</title>
+
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent !important;
+    }
+
+    #overlay {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    #status {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 9999;
+        padding: 4px 7px;
+        border-radius: 4px;
+        background: rgba(0,0,0,.55);
+        color: white;
+        font: 12px Arial, sans-serif;
+        pointer-events: none;
+    }
+
+    #video {
+        display: none;
+        width: auto;
+        height: auto;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        pointer-events: none;
+    }
+</style>
+</head>
+
+<body>
+
+<div id="overlay">
+    <video id="video" playsinline preload="auto"></video>
+</div>
+
+<div id="status">🔄 Conectando ao Streamer.bot...</div>
+
+<!-- Biblioteca oficial do Streamer.bot -->
+<script src="https://cdn.jsdelivr.net/npm/@streamerbot/client/dist/streamerbot-client.js"></script>
+
+<script>
+/*
+=========================================================
+ ABÊ GAMES — OVERLAY DE PRESENTES
+ --------------------------------------------------------
+ O Streamer.bot continua sendo o "cérebro".
+
+ A ação PRESENTES do Streamer.bot já recebe:
+   %giftId%
+   %giftName%
+   %repeatCount%
+   etc.
+
+ Este HTML escuta a execução da ação PRESENTES pelo
+ WebSocket do Streamer.bot e reproduz o vídeo correspondente.
+
+ IMPORTANTE:
+ Os arquivos abaixo devem ficar na MESMA PASTA deste HTML:
+
+   mamaco.mp4
+   susto.mp4
+   sebastian.mp4
+   apagar_luz.mp4
+   plankton.mp4
+   yamete.mp4
+
+ Se os nomes forem diferentes, altere somente a seção
+ CONFIGURAÇÃO DE VÍDEOS abaixo.
+=========================================================
+*/
+
+const CONFIG = {
+
+    // Nome EXATO da ação no Streamer.bot
+    actionName: "PRESENTES",
+
+    // ID dos presentes
+    gifts: {
+        "7934": "mamaco.mp4",       // Heart Me
+        "6581": "susto.mp4",        // Game Controller
+        "5879": "sebastian.mp4",    // Doughnut
+        "6267": "apagar_luz.mp4",   // Corgi
+        "5655": "plankton.mp4"      // Rose (combo < 10)
+    },
+
+    // Rose combo >= 10
+    roseId: "5655",
+    yameteFile: "yamete.mp4",
+
+    // Se quiser esconder o status depois de conectar
+    showStatus: true
+};
+
+const video = document.getElementById("video");
+const status = document.getElementById("status");
+
+let playing = false;
+let queue = [];
+let reconnectTimer = null;
+
+
+/* =====================================================
+   STATUS
+===================================================== */
+
+function setStatus(text) {
+    if (CONFIG.showStatus) {
+        status.textContent = text;
+        status.style.display = "block";
+    } else {
+        status.style.display = "none";
+    }
+}
+
+
+/* =====================================================
+   FILA DE VÍDEOS
+   Evita que dois presentes tentem tocar ao mesmo tempo.
+===================================================== */
+
+function enqueueVideo(file) {
+    if (!file) return;
+
+    queue.push(file);
+    processQueue();
+}
+
+
+async function processQueue() {
+
+    if (playing || queue.length === 0) return;
+
+    playing = true;
+
+    const file = queue.shift();
+
+    try {
+        video.pause();
+        video.currentTime = 0;
+
+        video.src = file;
+        video.style.display = "block";
+
+        await video.play();
+
+        await new Promise(resolve => {
+
+            const finish = () => {
+                video.removeEventListener("ended", finish);
+                video.removeEventListener("error", finish);
+                resolve();
+            };
+
+            video.addEventListener("ended", finish, { once: true });
+            video.addEventListener("error", finish, { once: true });
+
+        });
+
+    } catch (error) {
+
+        console.error("Erro ao reproduzir vídeo:", file, error);
+
+    }
+
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    video.style.display = "none";
+
+    playing = false;
+
+    processQueue();
+}
+
+
+/* =====================================================
+   RECEBE UMA EXECUÇÃO DA AÇÃO PRESENTES
+===================================================== */
+
+function handleStreamerbotAction(data) {
+
+    if (!data) return;
+
+    // Aceita name ou actionName, dependendo da versão/evento.
+    const actionName =
+        data.name ||
+        data.actionName ||
+        "";
+
+    if (actionName !== CONFIG.actionName) {
+        return;
+    }
+
+    const args = data.arguments || {};
+
+    const giftId =
+        String(args.giftId ?? "");
+
+    const repeatCount =
+        Number(args.repeatCount ?? 1);
+
+    console.log("PRESENTE RECEBIDO PELO OVERLAY:", {
+        actionName,
+        giftId,
+        giftName: args.giftName,
+        repeatCount,
+        arguments: args
+    });
+
+
+    /* =================================================
+       ROSE
+       Combo de 10 ou mais = YAMETE
+       Qualquer outro evento de rosa = PLANKTON
+    ================================================= */
+
+    if (giftId === CONFIG.roseId) {
+
+        if (repeatCount >= 10) {
+            enqueueVideo(CONFIG.yameteFile);
+        } else {
+            enqueueVideo(CONFIG.gifts[giftId]);
+        }
+
+        return;
+    }
+
+
+    /* =================================================
+       OUTROS PRESENTES
+    ================================================= */
+
+    const file = CONFIG.gifts[giftId];
+
+    if (file) {
+        enqueueVideo(file);
+    }
+}
+
+
+/* =====================================================
+   STREAMER.BOT WEBSOCKET
+===================================================== */
+
+function connectStreamerbot() {
+
+    try {
+
+        setStatus("🔄 Conectando ao Streamer.bot...");
+
+        /*
+         * O cliente oficial usa por padrão:
+         * host: 127.0.0.1
+         * port: 8080
+         * endpoint: /
+         *
+         * Se você alterou essas configurações no
+         * Streamer.bot, ajuste aqui.
+         */
+
+        window.streamerbotClient = new StreamerbotClient({
+            host: "127.0.0.1",
+            port: 8080,
+            endpoint: "/"
+        });
+
+
+        window.streamerbotClient.on("Raw.Action", ({ event, data }) => {
+
+            console.log("Streamer.bot → Raw.Action:", data);
+
+            handleStreamerbotAction(data);
+
+        });
+
+
+        window.streamerbotClient.on("Raw.ActionCompleted", ({ event, data }) => {
+
+            console.log("Streamer.bot → ActionCompleted:", data);
+
+        });
+
+
+        /*
+         * Alguns clientes/versões disponibilizam eventos de
+         * conexão. Mantemos apenas o console aqui para não
+         * depender de uma API específica da versão.
+         */
+
+        setStatus("🟢 Overlay conectado ao Streamer.bot!");
+
+        setTimeout(() => {
+
+            if (CONFIG.showStatus) {
+                status.style.display = "none";
+            }
+
+        }, 3000);
+
+    } catch (error) {
+
+        console.error("Erro ao conectar ao Streamer.bot:", error);
+
+        setStatus("🔴 Erro ao conectar ao Streamer.bot");
+
+        clearTimeout(reconnectTimer);
+
+        reconnectTimer = setTimeout(
+            connectStreamerbot,
+            5000
+        );
+    }
+}
+
+
+/* =====================================================
+   INÍCIO
+===================================================== */
+
+window.addEventListener("load", () => {
+
+    connectStreamerbot();
+
+});
+</script>
+
+</body>
+</html>
