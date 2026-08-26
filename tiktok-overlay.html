@@ -162,13 +162,6 @@
 <script>
 const CONFIG = {
     actionName: "PRESENTES",
-    galleryVersion: "v1_semana1_reset_v4",
-
-    galleryGifts: {
-        "7001": 1, "6120": 1, "6427": 1, "6801": 1, "5912": 1,
-        "6267": 1, "5487": 1, "5656": 4, "6523": 1, "5655": 1, "5879": 2,
-        "12631": 1
-    },
 
     memeList: [
         { name: "Plankton Bolado", image: "rosa.png" },
@@ -286,16 +279,6 @@ function handleStreamerbotAction(data) {
     const args = data.arguments || {};
     const giftId = String(args.giftId ?? "");
     const repeatCount = Number(args.repeatCount ?? 1);
-
-    const storageKey = "gallery_progress_" + CONFIG.galleryVersion;
-    const galleryProgress = JSON.parse(localStorage.getItem(storageKey)) || {};
-    const currentQty = galleryProgress[giftId] || 0;
-    const maxQty = CONFIG.galleryGifts[giftId] || 0;
-
-    if (maxQty > 0 && currentQty === maxQty) {
-        console.log("Item atingiu limite da galeria!");
-        return; 
-    }
 
     if (giftId === CONFIG.roseId) {
         if (repeatCount >= 10) {
