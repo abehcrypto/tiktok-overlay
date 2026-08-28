@@ -19,7 +19,7 @@
         font-family: 'Press Start 2P', cursive, monospace;
     }
 
-    /* Carrossel alinhado dentro do quadro da Webcam */
+    /* Carrossel Informativo atrás da Câmera */
     #meme-carousel-container {
         position: absolute;
         top: 140px;
@@ -106,6 +106,7 @@
         text-shadow: 1px 1px 2px #000;
     }
 
+    /* Região padrão dos vídeos (Área do Jogo - Meio) */
     #overlay {
         position: absolute;
         top: 650px;
@@ -117,26 +118,41 @@
         align-items: center;
         justify-content: center;
         z-index: 999;
+        transition: all 0.2s ease;
+    }
+
+    /* Exceção: Modo Tela Cheia (Ex: Gato Assustador) */
+    #overlay.fullscreen {
+        top: 0;
+        left: 0;
+        width: 1080px;
+        height: 1920px;
+        z-index: 9999;
+    }
+
+    #video {
+        display: none;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        pointer-events: none;
+    }
+
+    /* Força preenchimento total na tela cheia */
+    #overlay.fullscreen #video {
+        object-fit: cover;
     }
 
     #status {
         position: fixed;
         bottom: 8px;
         left: 8px;
-        z-index: 9999;
+        z-index: 99999;
         padding: 4px 7px;
         border-radius: 4px;
         background: rgba(0,0,0,.55);
         color: white;
         font: 10px Arial, sans-serif;
-        pointer-events: none;
-    }
-
-    #video {
-        display: none;
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
         pointer-events: none;
     }
 </style>
@@ -155,6 +171,8 @@
     <video id="video" playsinline preload="auto"></video>
 </div>
 
+<audio id="audio-default" src="dinheiro.mp3" preload="auto"></audio>
+
 <div id="status">🔄 Conectando ao Streamer.bot...</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@streamerbot/client/dist/streamerbot-client.js"></script>
@@ -163,6 +181,7 @@
 const CONFIG = {
     actionName: "PRESENTES",
 
+    // Itens exibidos no Carrossel da Câmera
     memeList: [
         { name: "Plankton Bolado", image: "rosa.png" },
         { name: "Yamete Kudasai", image: "rosa.png", combo: "x10" },
@@ -173,28 +192,31 @@ const CONFIG = {
         { name: "Gato Assustador", image: "Gato_assustador.png" }
     ],
 
-    gifts: {
-        "7934": "mamaco.mp4",        
-        "6427": "susto.mp4",         
-        "5879": "sebastian.mp4",     
-        "6267": "apagar_luz.mp4",    
-        "5655": "plankton.mp4",      
-        "5487": "menino_de_pau.mp4",
-        "12631": "gato.mp4"
-    },
+    // Regras de disparo de Vídeos por Palavra-chave ou ID
+    memeRules: [
+        { keywords: ["heart me", "heart_me", "7934"], video: "mamaco.mp4", fullscreen: false },
+        { keywords: ["chapéu e bigode", "chapeu e bigode", "chapéu_e_bigode", "6427"], video: "susto.mp4", fullscreen: false },
+        { keywords: ["rosquinha", "donut", "5879"], video: "sebastian.mp4", fullscreen: false },
+        { keywords: ["mãos fazendo coração", "maos fazendo coracao", "5487"], video: "menino_de_pau.mp4", fullscreen: false },
+        { keywords: ["gato assustador", "gato", "12631"], video: "gato.mp4", fullscreen: true } // TELA CHEIA 1080x1920
+    ],
 
-    roseId: "5655",
+    // Regra específica para Rosa
+    roseKeywords: ["rosa", "rose", "5655"],
     yameteFile: "yamete.mp4",
-    defaultGiftFile: "dinheiro.mp3",
+    planktonFile: "plankton.mp4",
+
+    defaultAudioFile: "dinheiro.mp3",
     showStatus: true
 };
 
+const overlay = document.getElementById("overlay");
 const video = document.getElementById("video");
+const audioDefault = document.getElementById("audio-default");
 const status = document.getElementById("status");
 
 let playing = false;
 let queue = [];
-let reconnectTimer = null;
 
 function renderMemeCarousel() {
     const track = document.getElementById("meme-track");
@@ -227,9 +249,9 @@ function setStatus(text) {
     }
 }
 
-function enqueueVideo(file) {
-    if (!file) return;
-    queue.push(file);
+function enqueueItem(item) {
+    if (!item) return;
+    queue.push(item);
     processQueue();
 }
 
@@ -237,34 +259,50 @@ async function processQueue() {
     if (playing || queue.length === 0) return;
     playing = true;
 
-    const file = queue.shift();
+    const item = queue.shift();
 
     try {
-        video.pause();
-        video.currentTime = 0;
-        video.src = file;
-        video.style.display = "block";
+        if (item.type === "video") {
+            if (item.fullscreen) {
+                overlay.classList.add("fullscreen");
+            } else {
+                overlay.classList.remove("fullscreen");
+            }
 
-        await video.play();
+            video.pause();
+            video.currentTime = 0;
+            video.src = item.file;
+            video.style.display = "block";
 
-        await new Promise(resolve => {
-            const finish = () => {
-                video.removeEventListener("ended", finish);
-                video.removeEventListener("error", finish);
-                resolve();
-            };
-            video.addEventListener("ended", finish, { once: true });
-            video.addEventListener("error", finish, { once: true });
-        });
+            await video.play();
+
+            await new Promise(resolve => {
+                const finish = () => {
+                    video.removeEventListener("ended", finish);
+                    video.removeEventListener("error", finish);
+                    resolve();
+                };
+                video.addEventListener("ended", finish, { once: true });
+                video.addEventListener("error", finish, { once: true });
+            });
+
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+            video.style.display = "none";
+            overlay.classList.remove("fullscreen");
+
+        } else if (item.type === "audio") {
+            audioDefault.currentTime = 0;
+            await audioDefault.play();
+            await new Promise(r => setTimeout(r, 1500));
+        }
 
     } catch (error) {
-        console.error("Erro ao reproduzir arquivo:", file, error);
+        console.error("Erro ao reproduzir mídia:", item, error);
+        video.style.display = "none";
+        overlay.classList.remove("fullscreen");
     }
-
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
-    video.style.display = "none";
 
     playing = false;
     processQueue();
@@ -277,24 +315,32 @@ function handleStreamerbotAction(data) {
     if (actionName !== CONFIG.actionName) return;
 
     const args = data.arguments || {};
-    const giftId = String(args.giftId ?? "");
-    const repeatCount = Number(args.repeatCount ?? 1);
+    const giftInput = String(args.giftName || args.gift_name || args.giftId || "").toLowerCase().trim();
+    const repeatCount = Number(args.repeatCount || args.repeat_count || 1);
 
-    if (giftId === CONFIG.roseId) {
+    // 1. Checagem de Rosa
+    const isRose = CONFIG.roseKeywords.some(kw => giftInput.includes(kw));
+    if (isRose) {
         if (repeatCount >= 10) {
-            enqueueVideo(CONFIG.yameteFile);
+            enqueueItem({ type: "video", file: CONFIG.yameteFile, fullscreen: false });
         } else {
-            enqueueVideo(CONFIG.gifts[giftId] || CONFIG.defaultGiftFile);
+            enqueueItem({ type: "video", file: CONFIG.planktonFile, fullscreen: false });
         }
         return;
     }
 
-    const file = CONFIG.gifts[giftId];
-    if (file) {
-        enqueueVideo(file);
-    } else {
-        enqueueVideo(CONFIG.defaultGiftFile);
+    // 2. Checagem dos Memes da Lista
+    const matchedMeme = CONFIG.memeRules.find(rule => 
+        rule.keywords.some(kw => giftInput.includes(kw))
+    );
+
+    if (matchedMeme) {
+        enqueueItem({ type: "video", file: matchedMeme.video, fullscreen: matchedMeme.fullscreen });
+        return;
     }
+
+    // 3. Qualquer outro presente (Fallback para som de Dinheiro)
+    enqueueItem({ type: "audio", file: CONFIG.defaultAudioFile });
 }
 
 function connectStreamerbot() {
@@ -310,15 +356,14 @@ function connectStreamerbot() {
             handleStreamerbotAction(data);
         });
 
-        setStatus("🟢 Overlay conectado ao Streamer.bot!");
+        setStatus("🟢 Overlay Memes Conectado!");
         setTimeout(() => {
             if (CONFIG.showStatus) status.style.display = "none";
         }, 3000);
 
     } catch (error) {
         setStatus("🔴 Erro ao conectar ao Streamer.bot");
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectStreamerbot, 5000);
+        setTimeout(connectStreamerbot, 5000);
     }
 }
 
